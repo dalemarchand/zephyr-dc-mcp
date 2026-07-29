@@ -1,0 +1,120 @@
+name: Release & Publish Executable
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: 'Version bump type (patch, minor, major)'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  release:
+    name: Build Standalone Binary & Publish Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Determine Version & Bump
+        id: versioning
+        run: |
+          # Check commit message or workflow input for bump type
+          BUMP_TYPE="patch"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            BUMP_TYPE="${{ github.event.inputs.bump_type }}"
+          else
+            COMMIT_MSG="${{ github.event.head_commit.message }}"
+            # If skipping release (e.g. from version bump commit), exit gracefully
+            if echo "$COMMIT_MSG" | grep -q "chore(release)"; then
+              echo "Release commit detected, skipping release workflow."
+              exit 0
+            fi
+
+            if echo "$COMMIT_MSG" | grep -iqE "\[major\]|#major"; then
+              BUMP_TYPE="major"
+            elif echo "$COMMIT_MSG" | grep -iqE "\[minor\]|#minor"; then
+              BUMP_TYPE="minor"
+            fi
+          fi
+
+          # Read current version
+          CURRENT_VER=$(cat VERSION | tr -d '[:space:]')
+          echo "Current Version: $CURRENT_VER"
+          echo "Bump Type: $BUMP_TYPE"
+
+          # Calculate new version
+          NEW_VER=$(python -c "
+          major, minor, patch = map(int, '$CURRENT_VER'.split('.'))
+          bump = '$BUMP_TYPE'
+          if bump == 'major':
+              print(f'{major + 1}.0.0')
+          elif bump == 'minor':
+              print(f'{major}.{minor + 1}.0')
+          else:
+              print(f'{major}.{minor}.{patch + 1}')
+          ")
+
+          echo "New Version: $NEW_VER"
+          echo "$NEW_VER" > VERSION
+          sed -i "s/__version__ = \".*\"/__version__ = \"$NEW_VER\"/g" zephyr_dc_mcp.py
+
+          echo "NEW_VERSION=$NEW_VER" >> $GITHUB_OUTPUT
+
+      - name: Run Pytest Test Suite
+        if: steps.versioning.outputs.NEW_VERSION != ''
+        run: |
+          PYTHONPATH=. pytest tests/
+
+      - name: Build Standalone Binary
+        if: steps.versioning.outputs.NEW_VERSION != ''
+        run: |
+          ./build.sh
+
+      - name: Commit & Push Version Bump
+        if: steps.versioning.outputs.NEW_VERSION != ''
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION zephyr_dc_mcp.py
+          NEW_VER="${{ steps.versioning.outputs.NEW_VERSION }}"
+          git commit -m "chore(release): bump version to $NEW_VER [skip ci]"
+          git tag -a "v$NEW_VER" -m "Release v$NEW_VER"
+          git push origin main
+          git push origin "v$NEW_VER"
+
+      - name: Create GitHub Release
+        if: steps.versioning.outputs.NEW_VERSION != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.versioning.outputs.NEW_VERSION }}"
+          name: "Release v${{ steps.versioning.outputs.NEW_VERSION }}"
+          body: |
+            ## Zephyr Scale Data Center MCP Server v${{ steps.versioning.outputs.NEW_VERSION }}
+            
+            Standalone executable release for zero-dependency integration.
+          files: |
+            dist/zephyr-scale-mcp

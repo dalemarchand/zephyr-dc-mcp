@@ -4,8 +4,11 @@ import httpx
 import truststore
 from fastmcp import FastMCP
 
+__version__ = "0.0.1"
+
 # Initialize FastMCP server
 mcp = FastMCP("zephyr-scale-datacenter")
+
 
 def get_base_url() -> str:
     """Retrieve the Jira Data Center base URL dynamically from environment."""
