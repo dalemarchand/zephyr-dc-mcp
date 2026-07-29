@@ -27,3 +27,8 @@ This file contains persistent guidelines and rules for AI coding assistants work
 - **PyInstaller Bundling**: Always include `--copy-metadata fastmcp` and `--copy-metadata truststore` when running PyInstaller.
 - **OpenCode Integration**: OpenCode uses top-level `"mcp"` key in `opencode.json` with `"type": "local"`, `"command": [...]`, and `"environment": { ... }`.
 - **Testing**: All tools must have corresponding unit tests in `tests/test_zephyr_mcp.py` mocking `httpx` calls. Always run `PYTHONPATH=. pytest tests/` before completing tasks.
+
+## 5. Bug Ticket & Release Workflow Protocol
+- **Local Verification Required**: Before pushing bug fixes to the remote repository or closing bug tickets (which triggers automated version releases), always pause to allow the user to test the fix locally and explicitly confirm/approve pushing the changes.
+- Do NOT close bug tickets or push commits to `main` until local verification by the user is complete.
+
