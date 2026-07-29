@@ -82,12 +82,15 @@ The compiled standalone executable will be generated at `dist/zephyr-scale-mcp`.
 
 ---
 
-## 4. Running the MCP Server directly via Python
+## 5. Continuous Integration (GitHub Actions)
 
-You can launch the stdio MCP server directly from Python:
-```bash
-export ZEPHYR_BASE_URL="https://jira.yourcompany.com"
-export ZEPHYR_PAT="your_personal_access_token"
+A GitHub Actions workflow is configured in [.github/workflows/ci.yml](.github/workflows/ci.yml).
 
-python zephyr_dc_mcp.py
-```
+- **Triggers**: Executed automatically on all Pull Requests targeting `main` and on pushes to `main`.
+- **Matrix Testing**: Runs tests across Python 3.10, 3.11, and 3.12.
+- **Pull Request Enforcement**: To require all PRs to pass tests before merging:
+  1. Go to your GitHub repository: `https://github.com/dalemarchand/zephyr-dc-mcp/settings/branches`.
+  2. Click **Add branch protection rule** for `main`.
+  3. Enable **Require status checks to pass before merging**.
+  4. Search and select `Run Pytest Suite` status check.
+
