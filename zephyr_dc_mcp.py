@@ -4,7 +4,7 @@ import httpx
 import truststore
 from fastmcp import FastMCP
 
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 
 # Initialize FastMCP server
 mcp = FastMCP("zephyr-scale-datacenter")
