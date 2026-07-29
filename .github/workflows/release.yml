@@ -41,19 +41,21 @@ jobs:
 
       - name: Determine Version & Bump
         id: versioning
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          EVENT_NAME: ${{ github.event_name }}
+          BUMP_INPUT: ${{ github.event.inputs.bump_type }}
         run: |
-          # Check commit message or workflow input for bump type
-          BUMP_TYPE="patch"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            BUMP_TYPE="${{ github.event.inputs.bump_type }}"
-          else
-            COMMIT_MSG="${{ github.event.head_commit.message }}"
-            # If skipping release (e.g. from version bump commit), exit gracefully
-            if echo "$COMMIT_MSG" | grep -q "chore(release)"; then
-              echo "Release commit detected, skipping release workflow."
-              exit 0
-            fi
+          # If skipping release (e.g. from version bump commit), exit gracefully
+          if echo "$COMMIT_MSG" | grep -q "chore(release)"; then
+            echo "Release commit detected, skipping release workflow."
+            exit 0
+          fi
 
+          BUMP_TYPE="patch"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            BUMP_TYPE="$BUMP_INPUT"
+          else
             if echo "$COMMIT_MSG" | grep -iqE "\[major\]|#major"; then
               BUMP_TYPE="major"
             elif echo "$COMMIT_MSG" | grep -iqE "\[minor\]|#minor"; then
@@ -109,6 +111,8 @@ jobs:
       - name: Create GitHub Release
         if: steps.versioning.outputs.NEW_VERSION != ''
         uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: "v${{ steps.versioning.outputs.NEW_VERSION }}"
           name: "Release v${{ steps.versioning.outputs.NEW_VERSION }}"
@@ -118,3 +122,4 @@ jobs:
             Standalone executable release for zero-dependency integration.
           files: |
             dist/zephyr-scale-mcp
+
