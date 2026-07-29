@@ -81,7 +81,16 @@ async def test_missing_pat_error(monkeypatch):
 
 @pytest.mark.asyncio
 @patch("httpx.AsyncClient.request")
+async def test_list_test_cases(mock_request):
+    mock_request.return_value = Response(200, json=[{"key": "PROJ-T1"}], request=Request("GET", "https://jira.example.com"))
+    result = await list_test_cases("PROJ")
+    assert "PROJ-T1" in result
+    assert "fields" in mock_request.call_args[1]["params"]
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.request")
 async def test_create_and_update_test_case(mock_request):
+
     mock_request.return_value = Response(201, json={"key": "PROJ-T200"}, request=Request("POST", "https://jira.example.com"))
     res_create = await create_test_case("PROJ", "New Auth Test", status="Approved", priority="High")
     assert "PROJ-T200" in res_create

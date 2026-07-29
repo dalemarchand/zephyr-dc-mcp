@@ -94,10 +94,17 @@ async def get_test_case(test_case_key: str) -> str:
     return await _make_request("GET", f"/rest/tests/1.0/testcase/{test_case_key}")
 
 @mcp.tool()
-async def list_test_cases(project_key: str, max_results: int = 20) -> str:
+async def list_test_cases(
+    project_key: str,
+    max_results: int = 20,
+    fields: str = "id,key,name,status,priority,projectKey,folderId",
+) -> str:
     """List test cases for a specific project in Zephyr Scale Data Center."""
     params = {"query": f"projectKey = '{project_key}'", "maxResults": max_results}
+    if fields:
+        params["fields"] = fields
     return await _make_request("GET", "/rest/tests/1.0/testcase/search", params=params)
+
 
 @mcp.tool()
 async def create_test_case(
