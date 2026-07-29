@@ -1,0 +1,6 @@
+pytest==8.2.0
+pytest-asyncio==0.23.6
+respx==0.21.1
+pyinstaller==6.6.0
+truststore==0.10.4
+

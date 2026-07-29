@@ -1,0 +1,108 @@
+# Zephyr Scale Data Center MCP Server
+
+This project provides a Model Context Protocol (MCP) server for integrating with SmartBear Zephyr Scale Data Center (formerly TM4J).
+It empowers LLM-based systems, specifically **[OpenCode](https://opencode.ai)**, to interact with your Jira Data Center test management data.
+
+## Requirements
+
+- **Python Version**: Python 3.10 or higher (when running from source).
+- **Jira Instance**: Jira Data Center / Server with Zephyr Scale plugin.
+- **Standalone Mode**: A pre-compiled executable (`dist/zephyr-scale-mcp`) is provided for zero-dependency deployment without requiring a local Python installation.
+
+---
+
+## Features
+
+### Test Cases & Test Scripts
+- **Get Test Case**: Retrieve details for a specific Zephyr Scale test case.
+- **List / Search Test Cases**: Search for all test cases within a project.
+- **Create Test Case**: Create a new test case with status, priority, owner, and labels.
+- **Update Test Case**: Update fields on an existing test case.
+- **Get Test Script**: Retrieve step-by-step test script instructions for a test case.
+- **Create or Update Test Script**: Save step-by-step script steps for a test case.
+- **Link Test to Issue (Traceability)**: Link a test case to a Jira issue key.
+
+### Test Cycles & Executions
+- **Get Test Cycle**: Fetch details for a specific test cycle/run.
+- **Search Test Cycles**: Search for test cycles in a project.
+- **Create Test Cycle**: Create a new test cycle/run with planned dates and description.
+- **Update Test Cycle**: Update name, description, status, or folder for a test cycle.
+- **Create Test Execution**: Execute a test case and log status (PASS, FAIL, WIP, BLOCKED).
+- **Get Test Execution**: Retrieve result details for a specific execution ID.
+- **List Test Executions**: List execution history for a specific test case.
+
+### Test Plans, Folders, Environments & Statuses
+- **Get Test Plan**: Retrieve test plan details.
+- **Search Test Plans**: Search test plans within a project.
+- **Create Test Plan**: Create a new test plan.
+- **List Folders**: List folder structures (TEST_CASE, TEST_CYCLE, TEST_PLAN).
+- **Create Folder**: Create new folders for organizing test assets.
+- **List Environments**: Retrieve configured environment names for a project.
+- **List Statuses**: Retrieve configured execution status options for a project.
+
+---
+
+## Environment Variables
+
+Before running the server, configure the connection parameters:
+
+- `ZEPHYR_BASE_URL`: **(Mandatory)** The Base URL to your Jira instance (e.g. `https://jira.yourcompany.com`). No default is provided.
+- `ZEPHYR_PAT`: **(Mandatory)** Your Jira Personal Access Token (PAT) used for authentication. Alternatively, `JIRA_PAT`, `ZEPHYR_API_KEY`, or `JIRA_API_TOKEN` are accepted.
+- `ZEPHYR_SSL_VERIFY`: Optional. Set to `false` to disable SSL verification. By default, the server validates certificates against the operating system's native certificate store (via `truststore`).
+
+---
+
+## OpenCode Integration Guide
+
+To integrate this MCP server into OpenCode, configure it under the top-level `"mcp"` key in your OpenCode configuration file (`~/.config/opencode/opencode.json` or project-level `opencode.json`).
+
+### Example OpenCode Configuration (`opencode.json`)
+
+```json
+{
+  "mcp": {
+    "zephyr-datacenter": {
+      "type": "local",
+      "command": ["/path/to/dist/zephyr-scale-mcp"],
+      "environment": {
+        "ZEPHYR_BASE_URL": "https://jira.yourcompany.com",
+        "ZEPHYR_PAT": "{env:ZEPHYR_PAT}"
+      },
+      "enabled": true
+    }
+  }
+}
+```
+
+> **Note**: OpenCode uses `{env:VAR_NAME}` for credentials interpolation from your environment shell.
+
+---
+
+## Developer Guide
+
+For detailed build instructions, python environment setups (`pip` and `uv`), running unit tests, and PyInstaller executable building, please see [BUILD.md](BUILD.md).
+
+### Quick Setup
+
+#### Standard Python (`pip`):
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+PYTHONPATH=. pytest tests/
+```
+
+#### Using `uv`:
+```bash
+uv venv
+source .venv/bin/activate
+uv pip install -r requirements.txt -r requirements-dev.txt
+PYTHONPATH=. uv run pytest tests/
+```
+
+### Building Standalone Binary
+```bash
+./build.sh
+```
+The resulting executable will be created at `dist/zephyr-scale-mcp`.
