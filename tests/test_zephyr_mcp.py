@@ -85,12 +85,17 @@ async def test_list_test_cases(mock_request):
     mock_request.return_value = Response(200, json=[{"key": "PROJ-T1"}], request=Request("GET", "https://jira.example.com"))
     result = await list_test_cases("PROJ")
     assert "PROJ-T1" in result
-    assert "fields" in mock_request.call_args[1]["params"]
+    assert mock_request.call_args[0][1] == "https://jira.example.com/rest/atm/1.0/testcase/search"
+    assert mock_request.call_args[1]["params"]["query"] == 'projectKey = "PROJ"'
+
+    # Test custom query
+    res_custom = await list_test_cases(query='name ~ "Auth"')
+    assert "PROJ-T1" in res_custom
+    assert mock_request.call_args[1]["params"]["query"] == 'name ~ "Auth"'
 
 @pytest.mark.asyncio
 @patch("httpx.AsyncClient.request")
 async def test_create_and_update_test_case(mock_request):
-
     mock_request.return_value = Response(201, json={"key": "PROJ-T200"}, request=Request("POST", "https://jira.example.com"))
     res_create = await create_test_case("PROJ", "New Auth Test", status="Approved", priority="High")
     assert "PROJ-T200" in res_create
@@ -100,18 +105,42 @@ async def test_create_and_update_test_case(mock_request):
     res_update = await update_test_case("PROJ-T200", name="Updated Name")
     assert "Updated Name" in res_update
 
+    mock_request.return_value = Response(200, json={"status": "linked"}, request=Request("POST", "https://jira.example.com"))
+    res_link = await link_test_to_issue("PROJ-T200", "JIRA-123")
+    assert "linked" in res_link
+    assert mock_request.call_args[0][1] == "https://jira.example.com/rest/atm/1.0/testcase/PROJ-T200/issueLinks"
+
 @pytest.mark.asyncio
 @patch("httpx.AsyncClient.request")
 async def test_test_scripts(mock_request):
-    mock_request.return_value = Response(200, json={"type": "STEP_BY_STEP", "steps": []}, request=Request("GET", "https://jira.example.com"))
+    # Test getting script when testScript exists
+    mock_request.return_value = Response(200, json={"key": "PROJ-T100", "testScript": {"type": "STEP_BY_STEP", "steps": []}}, request=Request("GET", "https://jira.example.com"))
     get_res = await get_test_script("PROJ-T100")
     assert "STEP_BY_STEP" in get_res
+    assert mock_request.call_args[0][1] == "https://jira.example.com/rest/atm/1.0/testcase/PROJ-T100"
 
-    mock_request.return_value = Response(200, json={"status": "success"}, request=Request("POST", "https://jira.example.com"))
+    # Test getting script when testScript is absent
+    mock_request.return_value = Response(200, json={"key": "PROJ-T100"}, request=Request("GET", "https://jira.example.com"))
+    get_empty_res = await get_test_script("PROJ-T100")
+    assert '"type": "NONE"' in get_empty_res
+
+    # Test creating/updating script via primary PUT
+    mock_request.return_value = Response(200, json={"status": "success"}, request=Request("PUT", "https://jira.example.com"))
     steps = [{"description": "Step 1", "expectedResult": "Pass"}]
     post_res = await create_or_update_test_script("PROJ-T100", steps)
     assert "success" in post_res
-    assert mock_request.call_args[1]["json"]["steps"] == steps
+    assert mock_request.call_args[1]["json"]["testScript"]["steps"] == steps
+
+    # Test creating/updating script fallback via POST /testscript
+    mock_request.side_effect = [
+        Response(404, text="Not Found", request=Request("PUT", "https://jira.example.com")),
+        Response(200, json={"status": "fallback_success"}, request=Request("POST", "https://jira.example.com"))
+    ]
+    fallback_res = await create_or_update_test_script("PROJ-T100", steps)
+    assert "fallback_success" in fallback_res
+
+
+
 
 @pytest.mark.asyncio
 @patch("httpx.AsyncClient.request")

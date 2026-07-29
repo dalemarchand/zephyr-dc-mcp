@@ -1,3 +1,4 @@
+import json
 import os
 import ssl
 import httpx
@@ -5,6 +6,7 @@ import truststore
 from fastmcp import FastMCP
 
 __version__ = "0.0.4"
+
 
 # Initialize FastMCP server
 mcp = FastMCP("zephyr-scale-datacenter")
@@ -91,20 +93,15 @@ async def _make_request(method: str, endpoint: str, params: dict = None, json: d
 @mcp.tool()
 async def get_test_case(test_case_key: str) -> str:
     """Fetch details for a specific Zephyr Scale test case (e.g. 'PROJ-T123')."""
-    return await _make_request("GET", f"/rest/tests/1.0/testcase/{test_case_key}")
+    return await _make_request("GET", f"/rest/atm/1.0/testcase/{test_case_key}")
 
 @mcp.tool()
-async def list_test_cases(
-    project_key: str,
-    max_results: int = 20,
-    fields: str = "id,key,name,status,priority,projectKey,folderId",
-) -> str:
+async def list_test_cases(project_key: str = None, query: str = None, max_results: int = 20) -> str:
     """List test cases for a specific project in Zephyr Scale Data Center."""
-    params = {"query": f"projectKey = '{project_key}'", "maxResults": max_results}
-    if fields:
-        params["fields"] = fields
-    return await _make_request("GET", "/rest/tests/1.0/testcase/search", params=params)
-
+    if not query and project_key:
+        query = f'projectKey = "{project_key}"'
+    params = {"query": query or "", "maxResults": max_results}
+    return await _make_request("GET", "/rest/atm/1.0/testcase/search", params=params)
 
 @mcp.tool()
 async def create_test_case(
@@ -159,18 +156,33 @@ async def update_test_case(
 @mcp.tool()
 async def get_test_script(test_case_key: str) -> str:
     """Retrieve the step-by-step test script for a test case."""
-    return await _make_request("GET", f"/rest/atm/1.0/testcase/{test_case_key}/testscript")
+    res_text = await _make_request("GET", f"/rest/atm/1.0/testcase/{test_case_key}")
+    try:
+        data = json.loads(res_text)
+        if isinstance(data, dict):
+            if "testScript" in data and data["testScript"]:
+                return json.dumps(data["testScript"], indent=2)
+            return json.dumps({"type": "NONE", "steps": []}, indent=2)
+    except Exception:
+        pass
+    return res_text
+
 
 @mcp.tool()
 async def create_or_update_test_script(test_case_key: str, steps: list[dict]) -> str:
     """Create or update step-by-step test script for a test case (steps format: [{"description": "Step 1", "expectedResult": "Result 1"}])."""
-    payload = {"type": "STEP_BY_STEP", "steps": steps}
-    return await _make_request("POST", f"/rest/atm/1.0/testcase/{test_case_key}/testscript", json=payload)
+    payload = {"testScript": {"type": "STEP_BY_STEP", "steps": steps}}
+    res = await _make_request("PUT", f"/rest/atm/1.0/testcase/{test_case_key}", json=payload)
+    if "404" in res and "Not Found" in res:
+        legacy_payload = {"type": "STEP_BY_STEP", "steps": steps}
+        return await _make_request("POST", f"/rest/atm/1.0/testcase/{test_case_key}/testscript", json=legacy_payload)
+    return res
+
 
 @mcp.tool()
 async def link_test_to_issue(test_case_key: str, issue_key: str) -> str:
     """Link a Zephyr test case to a Jira issue for traceability."""
-    return await _make_request("POST", f"/rest/tests/1.0/testcase/{test_case_key}/issueLinks", json=[issue_key])
+    return await _make_request("POST", f"/rest/atm/1.0/testcase/{test_case_key}/issueLinks", json=[issue_key])
 
 # --- Test Cycles / Runs & Executions ---
 
@@ -180,9 +192,11 @@ async def get_test_cycle(cycle_key: str) -> str:
     return await _make_request("GET", f"/rest/atm/1.0/testrun/{cycle_key}")
 
 @mcp.tool()
-async def search_test_cycles(project_key: str, max_results: int = 20) -> str:
+async def search_test_cycles(project_key: str = None, query: str = None, max_results: int = 20) -> str:
     """Search test cycles/runs for a project."""
-    params = {"query": f"projectKey = '{project_key}'", "maxResults": max_results}
+    if not query and project_key:
+        query = f'projectKey = "{project_key}"'
+    params = {"query": query or "", "maxResults": max_results}
     return await _make_request("GET", "/rest/atm/1.0/testrun/search", params=params)
 
 @mcp.tool()
@@ -235,7 +249,7 @@ async def create_test_execution(test_case_key: str, status: str = "PASS", cycle_
     }
     if cycle_key:
         payload["testCycleKey"] = cycle_key
-    return await _make_request("POST", "/rest/tests/1.0/testexecution", json=payload)
+    return await _make_request("POST", "/rest/atm/1.0/testresult", json=payload)
 
 @mcp.tool()
 async def get_test_execution(execution_id: int) -> str:
@@ -245,7 +259,8 @@ async def get_test_execution(execution_id: int) -> str:
 @mcp.tool()
 async def list_test_executions(test_case_key: str) -> str:
     """List execution history for a specific test case."""
-    return await _make_request("GET", f"/rest/tests/1.0/testcase/{test_case_key}/testresults")
+    return await _make_request("GET", f"/rest/atm/1.0/testcase/{test_case_key}/testresult")
+
 
 # --- Test Plans, Folders, Environments & Statuses ---
 
@@ -255,10 +270,13 @@ async def get_test_plan(plan_key: str) -> str:
     return await _make_request("GET", f"/rest/atm/1.0/testplan/{plan_key}")
 
 @mcp.tool()
-async def search_test_plans(project_key: str, max_results: int = 20) -> str:
+async def search_test_plans(project_key: str = None, query: str = None, max_results: int = 20) -> str:
     """Search test plans for a project."""
-    params = {"query": f"projectKey = '{project_key}'", "maxResults": max_results}
+    if not query and project_key:
+        query = f'projectKey = "{project_key}"'
+    params = {"query": query or "", "maxResults": max_results}
     return await _make_request("GET", "/rest/atm/1.0/testplan/search", params=params)
+
 
 @mcp.tool()
 async def create_test_plan(
