@@ -5,7 +5,7 @@ import httpx
 import truststore
 from fastmcp import FastMCP
 
-__version__ = "0.0.5"
+__version__ = "0.0.6"
 
 
 # Initialize FastMCP server
