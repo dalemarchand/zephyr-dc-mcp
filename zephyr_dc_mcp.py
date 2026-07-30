@@ -1,3 +1,6 @@
+# Zephyr Scale Data Center MCP server.
+# Note: Zephyr Scale Server v1 has no official test-cycle update endpoint.
+
 import json as json_lib
 import os
 import ssl
@@ -72,6 +75,10 @@ def format_error(e: Exception) -> str:
     if isinstance(e, httpx.RequestError):
         return f"Request Error: {e}"
     return f"Error: {e}"
+
+
+class UpdateNotSupportedError(RuntimeError):
+    """Raised when attempting to update test cycles on Zephyr Scale Server v1."""
 
 async def _make_request(method: str, endpoint: str, params: dict = None, json: dict | list = None) -> str:
     """Internal helper to perform HTTP requests to Zephyr Scale Data Center API."""
@@ -274,24 +281,16 @@ async def update_test_cycle(
     folder_id: int = None,
     project_key: str = None,
 ) -> str:
-    """Update an existing test cycle/run."""
-    if not project_key and "-" in cycle_key:
-        project_key = cycle_key.split("-")[0]
+    """[EXPERIMENTAL / UNSUPPORTED] Attempt to update an existing test cycle/run.
 
-    payload = {}
-    if project_key:
-        payload["projectKey"] = project_key
-    if name:
-        payload["name"] = name
-    if description:
-        payload["description"] = description
-    # Do not send status or folderId unless explicitly required by the server, 
-    # as extra fields often cause HTTP 500 errors on PUT /testrun/{key}.
-
-    # The official Zephyr Scale Server API does not document a PUT /testrun/{key} endpoint.
-    # Some server versions do support PUT /testrun/{key} as an undocumented extension.
-    res = await _make_request("PUT", f"/rest/atm/1.0/testrun/{cycle_key}", json=payload)
-    return res
+    Zephyr Scale Server v1 does not provide an official PUT /testrun/{key} endpoint.
+    This tool always raises UpdateNotSupportedError; treat test cycles as immutable and
+    create a new cycle instead of updating an existing one.
+    """
+    raise UpdateNotSupportedError(
+        "update_test_cycle is unsupported - Zephyr Scale Server v1 provides no PUT /testrun/{key} endpoint. "
+        "Treat test cycles as immutable; create a new cycle instead."
+    )
 
 @mcp.tool()
 async def delete_test_cycle(cycle_key: str) -> str:
@@ -347,6 +346,10 @@ async def create_test_execution_in_cycle(
     within the context of the specified test run. Preferred over create_test_execution when
     you have a specific cycle to record against.
     Status values: Pass, Fail, Not Executed, In Progress, Blocked.
+    
+    Note: 
+    - `executed_by` must be a valid Zephyr username; arbitrary labels will cause 400.
+    - `environment` must match an existing environment; otherwise it may cause 500s depending on server version.
     """
     status_str = status.strip() if isinstance(status, str) else "Pass"
     status_map = {
@@ -399,6 +402,18 @@ async def get_test_execution(execution_id: str | int) -> str:
     if "404" in res and "Not Found" in res:
         # ID-based search using the testresult/search endpoint
         res = await _make_request("GET", "/rest/atm/1.0/testresult/search", params={"query": f"id = {execution_id_str}"})
+
+    if "API Error 404" in res or '"status-code":404' in res:
+        return json_lib.dumps({
+            "note": (
+                "Execution not found via /testresult/{id} or testresult/search. "
+                "On some Zephyr Scale instances, direct lookup by ID is unreliable even for existing executions. "
+                "Prefer get_latest_test_result(test_case_key) or list_test_executions(test_case_key) when possible."
+            ),
+            "statusCode": 404,
+            "executionId": execution_id_str,
+            "raw": res,
+        })
     return res
 
 @mcp.tool()
@@ -464,13 +479,18 @@ async def search_test_plans(project_key: str = None, query: str = None, max_resu
 async def create_test_plan(
     project_key: str,
     name: str,
-    description: str = None,
     folder_id: int = None,
+    description: str | None = None,
 ) -> str:
-    """Create a new test plan."""
+    """Create a new test plan.
+
+    Note: The official Zephyr Scale Server v1 API does not reliably accept a
+    description field for test plans, so it is omitted for compatibility. Any
+    provided description argument will be ignored.
+    """
+    # The description argument is accepted but intentionally ignored because
+    # the v1 API does not reliably support it for test plans.
     payload = {"projectKey": project_key, "name": name}
-    if description:
-        payload["description"] = description
     if folder_id is not None:
         payload["folderId"] = folder_id
     return await _make_request("POST", "/rest/atm/1.0/testplan", json=payload)
@@ -479,16 +499,21 @@ async def create_test_plan(
 async def update_test_plan(
     plan_key: str,
     name: str = None,
-    description: str = None,
     folder_id: int = None,
     status: str = None,
+    description: str | None = None,
 ) -> str:
-    """Update an existing test plan by key."""
+    """Update an existing test plan by key.
+
+    Note: The official Zephyr Scale Server v1 API does not reliably accept a
+    description field for test plans, so it is omitted for compatibility. Any
+    provided description argument will be ignored.
+    """
+    # The description argument is accepted but intentionally ignored because
+    # the v1 API does not reliably support it for test plans.
     payload = {}
     if name:
         payload["name"] = name
-    if description:
-        payload["description"] = description
     if folder_id is not None:
         payload["folderId"] = folder_id
     if status:
@@ -551,8 +576,17 @@ async def create_folder(
     """Create a folder for organizing test cases, cycles, or plans. Name will automatically start with '/' if omitted."""
     if not name.startswith("/"):
         name = f"/{name}"
-    ft = _map_folder_type(folder_type)
-    payload = {"projectKey": project_key, "name": name, "type": ft}
+    # For create, use the Zephyr symbolic constants directly (TEST_CASE, TEST_RUN, TEST_PLAN).
+    ft_raw = (folder_type or "TEST_CASE").upper().replace(" ", "_")
+    if ft_raw not in ("TEST_CASE", "TEST_RUN", "TEST_PLAN"):
+        if "CYCLE" in ft_raw or "RUN" in ft_raw:
+            ft_raw = "TEST_RUN"
+        elif "PLAN" in ft_raw:
+            ft_raw = "TEST_PLAN"
+        else:
+            ft_raw = "TEST_CASE"
+            
+    payload = {"projectKey": project_key, "name": name, "type": ft_raw}
     if parent_id is not None:
         payload["parentId"] = parent_id
     return await _make_request("POST", "/rest/atm/1.0/folder", json=payload)
@@ -564,7 +598,20 @@ async def update_folder(folder_id: int, name: str) -> str:
     Uses PUT /folder/{folderId}. Only the folder name can be updated (forward and backslashes not allowed).
     """
     payload = {"name": name}
-    return await _make_request("PUT", f"/rest/atm/1.0/folder/{folder_id}", json=payload)
+    res = await _make_request("PUT", f"/rest/atm/1.0/folder/{folder_id}", json=payload)
+
+    if "API Error 404" in res and "Folder not found" in res:
+        return json_lib.dumps({
+            "note": (
+                "Folder not found for the given id. "
+                "This usually indicates that the folder was deleted or never existed on this instance."
+            ),
+            "statusCode": 404,
+            "folderId": folder_id,
+            "raw": res,
+        })
+
+    return res
 
 @mcp.tool()
 async def list_environments(project_key: str) -> str:

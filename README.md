@@ -68,26 +68,32 @@ Here is the current implementation status of Zephyr Scale Data Center APIs in th
 | `/testcase/{key}/testresult/latest` | GET | `get_latest_test_result` | ✅ PASS |
 | `/testrun` | POST | `create_test_cycle` | ✅ PASS |
 | `/testrun/{key}` | GET | `get_test_cycle` | ✅ PASS |
-| `/testrun/{key}` | PUT | `update_test_cycle` | ⚠️ LIMIT |
+| `/testrun/{key}` | PUT | `update_test_cycle` | ⚠️ EXPERIMENTAL / UNSUPPORTED – Zephyr Scale Server v1 API has no official cycle-update endpoint; MCP tool always raises `UpdateNotSupportedError` |
 | `/testrun/{key}` | DELETE | `delete_test_cycle` | ✅ PASS |
 | `/testrun/search` | GET | `search_test_cycles` | ✅ PASS |
 | `/testrun/{key}/testresults` | GET | `list_test_executions` | ✅ PASS |
 | `/testrun/{key}/testresults/page` | GET | `list_test_executions_page` | ✅ PASS |
 | `/testrun/{key}/testcase/{caseKey}/testresult` | POST | `create_test_execution_in_cycle` | ✅ PASS |
 | `/testresult` | POST | `create_test_execution` | ✅ PASS |
-| `/testresult/{key}` | GET | `get_test_execution` | ⚠️ LIMIT |
-| `/testplan` | POST | `create_test_plan` | ✅ PASS |
+| `/testresult/{key}` | GET | `get_test_execution` | ⚠️ BEST-EFFORT – numeric ID lookup not guaranteed; prefer `get_latest_test_result` / `list_test_executions` |
+| `/testplan` | POST | `create_test_plan` | ✅ PASS (description omitted; v1 API does not reliably support it) |
 | `/testplan/{key}` | GET | `get_test_plan` | ✅ PASS |
-| `/testplan/{key}` | PUT | `update_test_plan` | ✅ PASS |
+| `/testplan/{key}` | PUT | `update_test_plan` | ✅ PASS (description update omitted; v1 API does not reliably support it) |
 | `/testplan/{key}` | DELETE | `delete_test_plan` | ✅ PASS |
 | `/testplan/search` | GET | `search_test_plans` | ✅ PASS |
 | `/folder` | POST | `create_folder` | ✅ PASS |
 | `/folder/{id}` | PUT | `update_folder` | ✅ PASS |
-| `/folder` | GET (undocumented) | `list_folders` | 🔄 RETRY |
+| `/folder` | GET (UI-backed, undocumented) | `list_folders` | ⚠️ BEST-EFFORT (UI-backed; may return 404/500 on some versions) |
 | `/environments` | GET | `list_environments` | ✅ PASS |
 | `/environments` | POST | `create_environment` | ✅ PASS |
 | `/issuelink/{issueKey}/testcases` | GET | `get_test_cases_for_issue` | ✅ PASS |
-| Statuses (unofficial API) | GET | `list_statuses` | 🔄 RETRY |
+| Statuses (UI-backed, unofficial API) | GET | `list_statuses` | ⚠️ BEST-EFFORT (UI-backed; may return 404/500 on some versions) |
+
+### Known limitations / experimental tools
+Some tools rely on undocumented or UI-backed APIs and exhibit inconsistent behavior depending on your Zephyr Scale Data Center version:
+- **`update_test_cycle` (Z13)**: Experimental/unsupported. Zephyr Scale Server v1 exposes no official cycle-update endpoint; the MCP tool always raises `UpdateNotSupportedError`, so cycles are effectively immutable.
+- **`list_folders` / `list_statuses`**: Best-effort UI-backed tools that depend on internal UI endpoints and may return 404/500 on some server versions.
+- **`get_test_execution` (Z19)**: Best-effort. Numeric execution IDs may not resolve even for existing executions; prefer `get_latest_test_result(test_case_key)` or `list_test_executions(test_case_key)` for reliable behavior.
 
 ---
 

@@ -36,6 +36,7 @@ from zephyr_dc_mcp import (
     list_environments,
     create_environment,
     list_statuses,
+    UpdateNotSupportedError,
     get_base_url,
     get_pat,
     get_headers,
@@ -169,11 +170,9 @@ async def test_test_cycles(mock_request):
     res_create = await create_test_cycle("PROJ", "Sprint 1 Regression")
     assert "PROJ-R2" in res_create
 
-    mock_request.return_value = Response(200, json={"key": "PROJ-R2", "status": "Done"}, request=Request("PUT", "https://jira.example.com"))
-    res_update = await update_test_cycle("PROJ-R2", status="Done")
-    assert "Done" in res_update
-    # projectKey is now included as a validation anchor for servers that require it
-    assert mock_request.call_args[1]["json"]["projectKey"] == "PROJ"
+    # update_test_cycle is unsupported and must raise UpdateNotSupportedError
+    with pytest.raises(UpdateNotSupportedError):
+        await update_test_cycle("PROJ-R2", name="Updated")
 
 @pytest.mark.asyncio
 @patch("httpx.AsyncClient.request")
@@ -355,10 +354,9 @@ async def test_fallbacks_and_options(mock_request):
     res_list_exec = await list_test_executions("PROJ-T1")
     assert "456" in res_list_exec
     
-    # test update_test_cycle fields
-    mock_request.side_effect = None
-    mock_request.return_value = Response(200, json={"status": "updated"}, request=Request("PUT", "https://jira.example.com"))
-    await update_test_cycle("PROJ-C1", name="N", description="D", status="Done", folder_id=5, project_key="PROJ")
+    # update_test_cycle is unsupported and must raise UpdateNotSupportedError
+    with pytest.raises(UpdateNotSupportedError):
+        await update_test_cycle("PROJ-C1", name="N", description="D", status="Done", folder_id=5, project_key="PROJ")
     
     # test create_test_plan fields
     mock_request.return_value = Response(200, json={"status": "created"}, request=Request("POST", "https://jira.example.com"))
