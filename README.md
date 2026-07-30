@@ -52,6 +52,45 @@ Before running the server, configure the connection parameters:
 
 ---
 
+## API Coverage
+
+Here is the current implementation status of Zephyr Scale Data Center APIs in this MCP server:
+
+| API Endpoint | Method | MCP Tool | Status |
+|---|---|---|---|
+| `/testcase` | POST | `create_test_case` | ✅ PASS |
+| `/testcase/{key}` | GET | `get_test_case` | ✅ PASS |
+| `/testcase/{key}` | PUT | `update_test_case` | ✅ PASS |
+| `/testcase/{key}` | DELETE | `delete_test_case` | ✅ PASS |
+| `/testcase/search` | GET | `list_test_cases` | ✅ PASS |
+| `/testcase/link-issues` | POST | `bulk_link_test_cases_to_issues` | ✅ PASS |
+| `/testcase/{key}/issue` | POST | `link_test_to_issue` | ✅ PASS |
+| `/testcase/{key}/testresult/latest` | GET | `get_latest_test_result` | ✅ PASS |
+| `/testrun` | POST | `create_test_cycle` | ✅ PASS |
+| `/testrun/{key}` | GET | `get_test_cycle` | ✅ PASS |
+| `/testrun/{key}` | PUT | `update_test_cycle` | ⚠️ LIMIT |
+| `/testrun/{key}` | DELETE | `delete_test_cycle` | ✅ PASS |
+| `/testrun/search` | GET | `search_test_cycles` | ✅ PASS |
+| `/testrun/{key}/testresults` | GET | `list_test_executions` | ✅ PASS |
+| `/testrun/{key}/testresults/page` | GET | `list_test_executions_page` | ✅ PASS |
+| `/testrun/{key}/testcase/{caseKey}/testresult` | POST | `create_test_execution_in_cycle` | ✅ PASS |
+| `/testresult` | POST | `create_test_execution` | ✅ PASS |
+| `/testresult/{key}` | GET | `get_test_execution` | ⚠️ LIMIT |
+| `/testplan` | POST | `create_test_plan` | ✅ PASS |
+| `/testplan/{key}` | GET | `get_test_plan` | ✅ PASS |
+| `/testplan/{key}` | PUT | `update_test_plan` | ✅ PASS |
+| `/testplan/{key}` | DELETE | `delete_test_plan` | ✅ PASS |
+| `/testplan/search` | GET | `search_test_plans` | ✅ PASS |
+| `/folder` | POST | `create_folder` | ✅ PASS |
+| `/folder/{id}` | PUT | `update_folder` | ✅ PASS |
+| `/folder` | GET (undocumented) | `list_folders` | 🔄 RETRY |
+| `/environments` | GET | `list_environments` | ✅ PASS |
+| `/environments` | POST | `create_environment` | ✅ PASS |
+| `/issuelink/{issueKey}/testcases` | GET | `get_test_cases_for_issue` | ✅ PASS |
+| Statuses (unofficial API) | GET | `list_statuses` | 🔄 RETRY |
+
+---
+
 ## OpenCode Integration Guide
 
 To integrate this MCP server into OpenCode, configure it under the top-level `"mcp"` key in your OpenCode configuration file (`~/.config/opencode/opencode.json` or project-level `opencode.json`).

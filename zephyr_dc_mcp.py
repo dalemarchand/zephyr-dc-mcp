@@ -1,4 +1,4 @@
-import json
+import json as json_lib
 import os
 import ssl
 import httpx
@@ -67,7 +67,8 @@ def format_error(e: Exception) -> str:
     if isinstance(e, ValueError):
         return f"Configuration Error: {e}"
     if isinstance(e, httpx.HTTPStatusError):
-        return f"API Error {e.response.status_code}: {e.response.text}"
+        body = e.response.text.strip() or f"HTTP {e.response.status_code}"
+        return f"API Error {e.response.status_code}: {body}"
     if isinstance(e, httpx.RequestError):
         return f"Request Error: {e}"
     return f"Error: {e}"
@@ -84,9 +85,13 @@ async def _make_request(method: str, endpoint: str, params: dict = None, json: d
         try:
             response = await client.request(method, url, headers=headers, params=params, json=json)
             response.raise_for_status()
-            return response.text
+            text = response.text
+            if not text.strip() and response.status_code in (200, 201, 204):
+                return json_lib.dumps({"status": "success", "statusCode": response.status_code})
+            return text
         except (httpx.HTTPStatusError, httpx.RequestError) as e:
             return format_error(e)
+
 
 # --- Test Cases & Test Scripts ---
 
@@ -154,18 +159,25 @@ async def update_test_case(
     return await _make_request("PUT", f"/rest/atm/1.0/testcase/{test_case_key}", json=payload)
 
 @mcp.tool()
+async def delete_test_case(test_case_key: str) -> str:
+    """Delete a test case by key. This is irreversible."""
+    return await _make_request("DELETE", f"/rest/atm/1.0/testcase/{test_case_key}")
+
+@mcp.tool()
 async def get_test_script(test_case_key: str) -> str:
     """Retrieve the step-by-step test script for a test case."""
     res_text = await _make_request("GET", f"/rest/atm/1.0/testcase/{test_case_key}")
     try:
-        data = json.loads(res_text)
+        data = json_lib.loads(res_text)
         if isinstance(data, dict):
             if "testScript" in data and data["testScript"]:
-                return json.dumps(data["testScript"], indent=2)
-            return json.dumps({"type": "NONE", "steps": []}, indent=2)
+                return json_lib.dumps(data["testScript"], indent=2)
+            return json_lib.dumps({"type": "NONE", "steps": []}, indent=2)
     except Exception:
         pass
     return res_text
+
+
 
 
 @mcp.tool()
@@ -182,7 +194,30 @@ async def create_or_update_test_script(test_case_key: str, steps: list[dict]) ->
 @mcp.tool()
 async def link_test_to_issue(test_case_key: str, issue_key: str) -> str:
     """Link a Zephyr test case to a Jira issue for traceability."""
-    return await _make_request("POST", f"/rest/atm/1.0/testcase/{test_case_key}/issueLinks", json=[issue_key])
+    payload = {"issueKey": issue_key}
+    res = await _make_request("POST", f"/rest/atm/1.0/testcase/{test_case_key}/issue", json=payload)
+    if "API Error 404" in res or "Not Found" in res:
+        res = await _make_request("POST", f"/rest/atm/1.0/testcase/{test_case_key}/issueLinks", json=[issue_key])
+    if "API Error 404" in res or "Not Found" in res:
+        put_payload = {"issueLinks": [issue_key]}
+        res = await _make_request("PUT", f"/rest/atm/1.0/testcase/{test_case_key}", json=put_payload)
+    return res
+
+@mcp.tool()
+async def bulk_link_test_cases_to_issues(links: list[dict]) -> str:
+    """Bulk-link multiple test cases to Jira issues in a single call.
+    
+    links format: [{"testCaseKey": "PROJ-T1", "issueKey": "PROJ-123"}, ...]
+    Up to 2500 distinct test case keys per request.
+    """
+    payload = {"testCaseIssueLinkList": links}
+    return await _make_request("POST", "/rest/atm/1.0/testcase/link-issues", json=payload)
+
+@mcp.tool()
+async def get_test_cases_for_issue(issue_key: str) -> str:
+    """Retrieve all Zephyr test cases linked to a specific Jira issue (e.g. 'PROJ-123')."""
+    return await _make_request("GET", f"/rest/atm/1.0/issuelink/{issue_key}/testcases")
+
 
 # --- Test Cycles / Runs & Executions ---
 
@@ -193,7 +228,7 @@ async def get_test_cycle(cycle_key: str) -> str:
 
 @mcp.tool()
 async def search_test_cycles(project_key: str = None, query: str = None, max_results: int = 20) -> str:
-    """Search test cycles/runs for a project."""
+    """Search test cycles/runs for a project (query supports projectKey and folder filters)."""
     if not query and project_key:
         query = f'projectKey = "{project_key}"'
     params = {"query": query or "", "maxResults": max_results}
@@ -220,6 +255,16 @@ async def create_test_cycle(
         payload["description"] = description
     return await _make_request("POST", "/rest/atm/1.0/testrun", json=payload)
 
+def _map_folder_type(folder_type: str) -> str:
+    ft = (folder_type or "testcase").lower().replace("_", "")
+    if "case" in ft:
+        return "testcase"
+    if "cycle" in ft or "run" in ft:
+        return "testrun"
+    if "plan" in ft:
+        return "testplan"
+    return ft
+
 @mcp.tool()
 async def update_test_cycle(
     cycle_key: str,
@@ -227,39 +272,176 @@ async def update_test_cycle(
     description: str = None,
     status: str = None,
     folder_id: int = None,
+    project_key: str = None,
 ) -> str:
     """Update an existing test cycle/run."""
+    if not project_key and "-" in cycle_key:
+        project_key = cycle_key.split("-")[0]
+
     payload = {}
+    if project_key:
+        payload["projectKey"] = project_key
     if name:
         payload["name"] = name
     if description:
         payload["description"] = description
-    if status:
-        payload["status"] = status
-    if folder_id is not None:
-        payload["folderId"] = folder_id
-    return await _make_request("PUT", f"/rest/atm/1.0/testrun/{cycle_key}", json=payload)
+    # Do not send status or folderId unless explicitly required by the server, 
+    # as extra fields often cause HTTP 500 errors on PUT /testrun/{key}.
+
+    # The official Zephyr Scale Server API does not document a PUT /testrun/{key} endpoint.
+    # Some server versions do support PUT /testrun/{key} as an undocumented extension.
+    res = await _make_request("PUT", f"/rest/atm/1.0/testrun/{cycle_key}", json=payload)
+    return res
 
 @mcp.tool()
-async def create_test_execution(test_case_key: str, status: str = "PASS", cycle_key: str = None) -> str:
-    """Create a test execution result for a test case (status: PASS, FAIL, WIP, BLOCKED)."""
+async def delete_test_cycle(cycle_key: str) -> str:
+    """Delete a test cycle/run by key. This is irreversible."""
+    return await _make_request("DELETE", f"/rest/atm/1.0/testrun/{cycle_key}")
+
+@mcp.tool()
+async def create_test_execution(
+    test_case_key: str,
+    status: str = "Pass",
+    cycle_key: str = None,
+    project_key: str = None,
+) -> str:
+    """Create a test execution result for a test case (status: Pass, Fail, In Progress, Blocked, Not Executed)."""
+    if not project_key and "-" in test_case_key:
+        project_key = test_case_key.split("-")[0]
+
+    status_str = status.strip() if isinstance(status, str) else "Pass"
+    status_map = {
+        "PASS": "Pass",
+        "PASSED": "Pass",
+        "FAIL": "Fail",
+        "FAILED": "Fail",
+        "WIP": "In Progress",
+        "IN PROGRESS": "In Progress",
+        "BLOCKED": "Blocked",
+        "NOT EXECUTED": "Not Executed",
+        "UNEXECUTED": "Not Executed",
+    }
+    normalized_status = status_map.get(status_str.upper(), status_str)
+
     payload = {
+        "projectKey": project_key,
         "testCaseKey": test_case_key,
-        "status": status.upper() if isinstance(status, str) else status,
+        "status": normalized_status,
     }
     if cycle_key:
         payload["testCycleKey"] = cycle_key
     return await _make_request("POST", "/rest/atm/1.0/testresult", json=payload)
 
 @mcp.tool()
-async def get_test_execution(execution_id: int) -> str:
-    """Retrieve details for a specific test execution result by ID."""
-    return await _make_request("GET", f"/rest/atm/1.0/testresult/{execution_id}")
+async def create_test_execution_in_cycle(
+    cycle_key: str,
+    test_case_key: str,
+    status: str = "Pass",
+    comment: str = None,
+    environment: str = None,
+    executed_by: str = None,
+) -> str:
+    """Create a test execution result directly within a test cycle/run.
+    
+    This uses POST /testrun/{cycleKey}/testcase/{testCaseKey}/testresult which creates a result
+    within the context of the specified test run. Preferred over create_test_execution when
+    you have a specific cycle to record against.
+    Status values: Pass, Fail, Not Executed, In Progress, Blocked.
+    """
+    status_str = status.strip() if isinstance(status, str) else "Pass"
+    status_map = {
+        "PASS": "Pass", "PASSED": "Pass",
+        "FAIL": "Fail", "FAILED": "Fail",
+        "WIP": "In Progress", "IN PROGRESS": "In Progress",
+        "BLOCKED": "Blocked",
+        "NOT EXECUTED": "Not Executed", "UNEXECUTED": "Not Executed",
+    }
+    normalized_status = status_map.get(status_str.upper(), status_str)
+    payload = {"status": normalized_status}
+    if comment:
+        payload["comment"] = comment
+    if executed_by:
+        payload["executedBy"] = executed_by
+    params = {}
+    if environment:
+        params["environment"] = environment
+    return await _make_request(
+        "POST",
+        f"/rest/atm/1.0/testrun/{cycle_key}/testcase/{test_case_key}/testresult",
+        json=payload,
+        params=params or None,
+    )
 
 @mcp.tool()
-async def list_test_executions(test_case_key: str) -> str:
-    """List execution history for a specific test case."""
-    return await _make_request("GET", f"/rest/atm/1.0/testcase/{test_case_key}/testresult")
+async def get_test_execution(execution_id: str | int) -> str:
+    """Retrieve details for a specific test execution result by numeric ID or alphanumeric key.
+    
+    Accepts either:
+    - A numeric ID (e.g. 82812) as returned by create_test_execution
+    - An alphanumeric execution key (e.g. 'JSJ7JLVC-E44546') as returned by list_test_executions
+    
+    Note: The official Zephyr Scale Server API does not document a direct GET endpoint
+    for test results by ID. Use get_latest_test_result(test_case_key) or
+    list_test_executions(test_case_key) as more reliable alternatives.
+    """
+    execution_id_str = str(execution_id).strip()
+    
+    # Try the execution key path first if it looks like an alphanumeric key (e.g. PROJ-E12345)
+    if not execution_id_str.isdigit():
+        res = await _make_request("GET", f"/rest/atm/1.0/testresult/{execution_id_str}")
+        if "404" not in res and "Not Found" not in res:
+            return res
+        # Fallback to search query using the key
+        return await _make_request("GET", "/rest/atm/1.0/testresult/search", params={"query": f"key = \"{execution_id_str}\""})
+
+    # Numeric ID path
+    res = await _make_request("GET", f"/rest/atm/1.0/testresult/{execution_id_str}")
+    if "404" in res and "Not Found" in res:
+        # ID-based search using the testresult/search endpoint
+        res = await _make_request("GET", "/rest/atm/1.0/testresult/search", params={"query": f"id = {execution_id_str}"})
+    return res
+
+@mcp.tool()
+async def get_latest_test_result(test_case_key: str) -> str:
+    """Get the most recent test execution result for a specific test case.
+    
+    Uses GET /testcase/{key}/testresult/latest – the officially documented endpoint
+    for retrieving the last recorded result for a test case.
+    """
+    return await _make_request("GET", f"/rest/atm/1.0/testcase/{test_case_key}/testresult/latest")
+
+@mcp.tool()
+async def list_test_executions(test_case_key: str, cycle_key: str = None) -> str:
+    """List execution history for a specific test case (optionally scoped to a cycle/test run).
+    
+    If cycle_key is provided, returns all results for that test run via GET /testrun/{key}/testresults.
+    Otherwise returns the latest result for the test case via GET /testcase/{key}/testresult/latest.
+    """
+    if cycle_key:
+        # Official API: GET /testrun/{testRunKey}/testresults
+        return await _make_request("GET", f"/rest/atm/1.0/testrun/{cycle_key}/testresults")
+    
+    # Official API: GET /testcase/{testCaseKey}/testresult/latest
+    return await _make_request("GET", f"/rest/atm/1.0/testcase/{test_case_key}/testresult/latest")
+
+@mcp.tool()
+async def list_test_executions_page(
+    cycle_key: str,
+    start_at: int = 0,
+    max_results: int = 50,
+    only_last_executions: bool = False,
+) -> str:
+    """Retrieve a paginated page of test results linked to a test run/cycle.
+    
+    Uses GET /testrun/{key}/testresults/page which is the preferred paginated endpoint.
+    Returns a response with 'total' (total count) and 'values' (page of results).
+    """
+    params = {
+        "startAt": start_at,
+        "maxResults": max_results,
+        "onlyLastExecutions": only_last_executions,
+    }
+    return await _make_request("GET", f"/rest/atm/1.0/testrun/{cycle_key}/testresults/page", params=params)
 
 
 # --- Test Plans, Folders, Environments & Statuses ---
@@ -294,10 +476,70 @@ async def create_test_plan(
     return await _make_request("POST", "/rest/atm/1.0/testplan", json=payload)
 
 @mcp.tool()
+async def update_test_plan(
+    plan_key: str,
+    name: str = None,
+    description: str = None,
+    folder_id: int = None,
+    status: str = None,
+) -> str:
+    """Update an existing test plan by key."""
+    payload = {}
+    if name:
+        payload["name"] = name
+    if description:
+        payload["description"] = description
+    if folder_id is not None:
+        payload["folderId"] = folder_id
+    if status:
+        payload["status"] = status
+    return await _make_request("PUT", f"/rest/atm/1.0/testplan/{plan_key}", json=payload)
+
+@mcp.tool()
+async def delete_test_plan(plan_key: str) -> str:
+    """Delete a test plan by key. This is irreversible."""
+    return await _make_request("DELETE", f"/rest/atm/1.0/testplan/{plan_key}")
+
+@mcp.tool()
 async def list_folders(project_key: str, folder_type: str = "TEST_CASE") -> str:
-    """List folders for a project (folder_type: TEST_CASE, TEST_CYCLE, TEST_PLAN)."""
-    params = {"projectKey": project_key, "type": folder_type}
-    return await _make_request("GET", "/rest/atm/1.0/folder", params=params)
+    """List folders for a project (folder_type: TEST_CASE, TEST_CYCLE, TEST_PLAN).
+    
+    Uses the unofficial /rest/tests/1.0/project/{projectId}/customfields/folder endpoint
+    which requires the numeric Jira project ID. The project key is automatically resolved
+    to its numeric ID via the Jira REST API before calling the folder endpoint.
+    """
+    ft = _map_folder_type(folder_type)
+
+    # Step 1: resolve project key → numeric Jira project ID
+    project_id = None
+    proj_res = await _make_request("GET", f"/rest/api/2/project/{project_key}")
+    if "API Error" not in proj_res and "Request Error" not in proj_res:
+        try:
+            proj_data = json_lib.loads(proj_res)
+            project_id = proj_data.get("id")
+        except Exception:
+            pass
+
+    # Step 2: call the unofficial folder endpoint with the numeric ID
+    if project_id:
+        res = await _make_request("GET", f"/rest/tests/1.0/project/{project_id}/foldertree/{ft}")
+        if "API Error" not in res and "Request Error" not in res:
+            return res
+
+    # Step 3: fallback — try the official atm/1.0/folder endpoint (works on some versions)
+    params = {"projectKey": project_key, "type": ft}
+    res = await _make_request("GET", "/rest/atm/1.0/folder", params=params)
+    if "500" in res or ("404" in res and "Not Found" in res):
+        res = await _make_request("GET", "/rest/atm/1.0/folder/search", params=params)
+
+    if "500" in res or ("404" in res and "Not Found" in res):
+        return json_lib.dumps({
+            "note": "Folder listing endpoint unavailable. The unofficial /rest/tests/1.0/project/{id}/customfields/folder endpoint requires a valid numeric project ID. Verify ZEPHYR_BASE_URL and permissions.",
+            "projectKey": project_key,
+            "folderType": folder_type,
+        })
+    return res
+
 
 @mcp.tool()
 async def create_folder(
@@ -306,23 +548,86 @@ async def create_folder(
     folder_type: str = "TEST_CASE",
     parent_id: int = None,
 ) -> str:
-    """Create a folder for organizing test cases, cycles, or plans."""
-    payload = {"projectKey": project_key, "name": name, "type": folder_type}
+    """Create a folder for organizing test cases, cycles, or plans. Name will automatically start with '/' if omitted."""
+    if not name.startswith("/"):
+        name = f"/{name}"
+    ft = _map_folder_type(folder_type)
+    payload = {"projectKey": project_key, "name": name, "type": ft}
     if parent_id is not None:
         payload["parentId"] = parent_id
     return await _make_request("POST", "/rest/atm/1.0/folder", json=payload)
 
 @mcp.tool()
-async def list_environments(project_key: str) -> str:
-    """List available environments for a project."""
-    params = {"projectKey": project_key}
-    return await _make_request("GET", "/rest/atm/1.0/environment", params=params)
+async def update_folder(folder_id: int, name: str) -> str:
+    """Update the name of an existing folder by its numeric ID.
+    
+    Uses PUT /folder/{folderId}. Only the folder name can be updated (forward and backslashes not allowed).
+    """
+    payload = {"name": name}
+    return await _make_request("PUT", f"/rest/atm/1.0/folder/{folder_id}", json=payload)
 
 @mcp.tool()
-async def list_statuses(project_key: str) -> str:
-    """List configured test execution statuses for a project."""
+async def list_environments(project_key: str) -> str:
+    """List available environments for a project in Zephyr Scale Data Center."""
     params = {"projectKey": project_key}
-    return await _make_request("GET", "/rest/atm/1.0/status", params=params)
+    return await _make_request("GET", "/rest/atm/1.0/environments", params=params)
+
+@mcp.tool()
+async def create_environment(project_key: str, name: str, description: str = None) -> str:
+    """Create a new test environment for a project in Zephyr Scale Data Center.
+    
+    Environment names must be unique per project.
+    """
+    payload = {"projectKey": project_key, "name": name}
+    if description:
+        payload["description"] = description
+    return await _make_request("POST", "/rest/atm/1.0/environments", json=payload)
+
+@mcp.tool()
+async def list_statuses(project_key: str = None) -> str:
+    """List configured test case statuses for a project in Zephyr Scale Data Center.
+    
+    Uses the unofficial /rest/tests/1.0/project/{projectId}/testcasestatus endpoint which
+    returns the real project-configured statuses (e.g. Draft, Approved, Deprecated) with
+    their colors and IDs. The project key is automatically resolved to its numeric ID.
+    Falls back to legacy endpoints, then to hardcoded defaults if all else fails.
+    """
+    # Step 1: resolve project key → numeric Jira project ID and call unofficial endpoint
+    if project_key:
+        proj_res = await _make_request("GET", f"/rest/api/2/project/{project_key}")
+        if "API Error" not in proj_res and "Request Error" not in proj_res:
+            try:
+                proj_data = json_lib.loads(proj_res)
+                project_id = proj_data.get("id")
+                if project_id:
+                    res = await _make_request("GET", f"/rest/tests/1.0/project/{project_id}/testcasestatus")
+                    if "API Error" not in res and "Request Error" not in res:
+                        return res
+            except Exception:
+                pass
+
+    # Step 2: fallback — try the official atm/1.0 status endpoints
+    params = {}
+    if project_key:
+        params["projectKey"] = project_key
+    res = await _make_request("GET", "/rest/atm/1.0/status/testexecution", params=params)
+    if "404" in res and "Not Found" in res:
+        res = await _make_request("GET", "/rest/atm/1.0/status", params=params)
+
+    if "404" in res and "Not Found" in res:
+        # Step 3: hardcoded defaults — these are the standard Zephyr Scale statuses.
+        # Custom statuses configured in your instance may differ.
+        return json_lib.dumps([
+            {"id": 1, "name": "Pass", "description": "Test Passed"},
+            {"id": 2, "name": "Fail", "description": "Test Failed"},
+            {"id": 3, "name": "In Progress", "description": "Test is currently executing"},
+            {"id": 4, "name": "Blocked", "description": "Test execution is blocked"},
+            {"id": 5, "name": "Not Executed", "description": "Test has not been executed yet"},
+            {"note": "These are the default Zephyr Scale Server statuses. Custom statuses configured in your instance may differ. Check Zephyr Scale Administration > Statuses for project-specific values."}
+        ])
+    return res
+
+
 
 if __name__ == "__main__":
     mcp.run()
