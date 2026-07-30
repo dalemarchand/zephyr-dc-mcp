@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-30
+
 ### Added
 - Expanded parameter support across all entity creation and modification tools in `zephyr_dc_mcp.py`:
   - **Test Cases (`create_test_case`, `update_test_case`)**: Added `precondition`, `folder`, `component`, `custom_fields`, `issue_links`, `objective`, `estimated_time`, and `parameters`.
