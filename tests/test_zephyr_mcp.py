@@ -109,13 +109,50 @@ async def test_list_test_cases(mock_request):
 @patch("httpx.AsyncClient.request")
 async def test_create_and_update_test_case(mock_request):
     mock_request.return_value = Response(201, json={"key": "PROJ-T200"}, request=Request("POST", "https://jira.example.com"))
-    res_create = await create_test_case("PROJ", "New Auth Test", status="Approved", priority="High")
+    res_create = await create_test_case(
+        "PROJ",
+        "New Auth Test",
+        folder="/JLVC/ACS",
+        status="Approved",
+        priority="High",
+        owner="JIRAUSER10949",
+        component="ACS",
+        labels=["StateManager"],
+        custom_fields={"Linked Issues": "JSJ7JLVC-24436"},
+        issue_links=["JSJ7JLVC-24436"],
+        objective="Verify state manager deregistration",
+        estimated_time=120000,
+        parameters={"variables": [], "entries": []},
+    )
     assert "PROJ-T200" in res_create
-    assert mock_request.call_args[1]["json"]["name"] == "New Auth Test"
+    payload = mock_request.call_args[1]["json"]
+    assert payload["name"] == "New Auth Test"
+    assert payload["folder"] == "/JLVC/ACS"
+    assert payload["component"] == "ACS"
+    assert payload["customFields"] == {"Linked Issues": "JSJ7JLVC-24436"}
+    assert payload["issueLinks"] == ["JSJ7JLVC-24436"]
+    assert payload["objective"] == "Verify state manager deregistration"
+    assert payload["estimatedTime"] == 120000
+    assert payload["parameters"] == {"variables": [], "entries": []}
 
     mock_request.return_value = Response(200, json={"key": "PROJ-T200", "name": "Updated Name"}, request=Request("PUT", "https://jira.example.com"))
-    res_update = await update_test_case("PROJ-T200", name="Updated Name")
+    res_update = await update_test_case(
+        "PROJ-T200",
+        name="Updated Name",
+        folder="/JLVC/ACS/Buckets",
+        component="ACS-Core",
+        custom_fields={"Linked Issues": "JSJ7JLVC-24436"},
+        issue_links=["JSJ7JLVC-24436"],
+        estimated_time=180000,
+    )
     assert "Updated Name" in res_update
+    update_payload = mock_request.call_args[1]["json"]
+    assert update_payload["name"] == "Updated Name"
+    assert update_payload["folder"] == "/JLVC/ACS/Buckets"
+    assert update_payload["component"] == "ACS-Core"
+    assert update_payload["customFields"] == {"Linked Issues": "JSJ7JLVC-24436"}
+    assert update_payload["issueLinks"] == ["JSJ7JLVC-24436"]
+    assert update_payload["estimatedTime"] == 180000
 
     mock_request.return_value = Response(200, json={"status": "linked"}, request=Request("POST", "https://jira.example.com"))
     res_link = await link_test_to_issue("PROJ-T200", "JIRA-123")

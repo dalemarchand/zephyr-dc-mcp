@@ -104,7 +104,13 @@ async def _make_request(method: str, endpoint: str, params: dict = None, json: d
 
 @mcp.tool()
 async def get_test_case(test_case_key: str) -> str:
-    """Fetch details for a specific Zephyr Scale test case (e.g. 'PROJ-T123')."""
+    """Fetch details for a specific Zephyr Scale test case (e.g. 'PROJ-T123').
+    
+    Returns a comprehensive JSON object containing all test case metadata:
+    - key, name, status, priority, owner, createdBy, createdOn, updatedBy, updatedOn
+    - component, folder, labels, customFields (dict), issueLinks (list)
+    - testScript (step-by-step steps), parameters (dict), majorVersion, latestVersion
+    """
     return await _make_request("GET", f"/rest/atm/1.0/testcase/{test_case_key}")
 
 @mcp.tool()
@@ -120,23 +126,55 @@ async def create_test_case(
     project_key: str,
     name: str,
     folder_id: int = None,
+    folder: str = None,
     status: str = None,
     priority: str = None,
     owner: str = None,
+    component: str = None,
     labels: list[str] = None,
+    custom_fields: dict = None,
+    issue_links: list[str] = None,
+    objective: str = None,
+    estimated_time: int = None,
+    parameters: dict = None,
 ) -> str:
-    """Create a new test case in Zephyr Scale Data Center."""
+    """Create a new test case in Zephyr Scale Data Center.
+    
+    Supports setting optional metadata fields:
+    - folder_id (int) or folder (str path e.g. "/JLVC/Federates/ACS/Need Sorted into Buckets")
+    - status, priority, owner, component
+    - labels (list of strings)
+    - custom_fields (dict e.g. {"Linked Issues": "JSJ7JLVC-24436"})
+    - issue_links (list of Jira issue keys e.g. ["JSJ7JLVC-24436"])
+    - objective (test case objective/description string)
+    - estimated_time (execution time in milliseconds)
+    - parameters (dict definition)
+    """
     payload = {"projectKey": project_key, "name": name}
     if folder_id is not None:
         payload["folderId"] = folder_id
+    if folder:
+        payload["folder"] = folder
     if status:
         payload["status"] = status
     if priority:
         payload["priority"] = priority
     if owner:
         payload["owner"] = owner
+    if component:
+        payload["component"] = component
     if labels:
         payload["labels"] = labels
+    if custom_fields:
+        payload["customFields"] = custom_fields
+    if issue_links:
+        payload["issueLinks"] = issue_links
+    if objective:
+        payload["objective"] = objective
+    if estimated_time is not None:
+        payload["estimatedTime"] = estimated_time
+    if parameters:
+        payload["parameters"] = parameters
     return await _make_request("POST", "/rest/atm/1.0/testcase", json=payload)
 
 @mcp.tool()
@@ -144,10 +182,17 @@ async def update_test_case(
     test_case_key: str,
     name: str = None,
     folder_id: int = None,
+    folder: str = None,
     status: str = None,
     priority: str = None,
     owner: str = None,
+    component: str = None,
     labels: list[str] = None,
+    custom_fields: dict = None,
+    issue_links: list[str] = None,
+    objective: str = None,
+    estimated_time: int = None,
+    parameters: dict = None,
 ) -> str:
     """Update an existing test case in Zephyr Scale Data Center."""
     payload = {}
@@ -155,14 +200,28 @@ async def update_test_case(
         payload["name"] = name
     if folder_id is not None:
         payload["folderId"] = folder_id
+    if folder:
+        payload["folder"] = folder
     if status:
         payload["status"] = status
     if priority:
         payload["priority"] = priority
     if owner:
         payload["owner"] = owner
+    if component:
+        payload["component"] = component
     if labels:
         payload["labels"] = labels
+    if custom_fields:
+        payload["customFields"] = custom_fields
+    if issue_links:
+        payload["issueLinks"] = issue_links
+    if objective:
+        payload["objective"] = objective
+    if estimated_time is not None:
+        payload["estimatedTime"] = estimated_time
+    if parameters:
+        payload["parameters"] = parameters
     return await _make_request("PUT", f"/rest/atm/1.0/testcase/{test_case_key}", json=payload)
 
 @mcp.tool()
