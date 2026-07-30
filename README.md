@@ -101,6 +101,8 @@ Some tools rely on undocumented or UI-backed APIs and exhibit inconsistent behav
 
 To integrate this MCP server into OpenCode, configure it under the top-level `"mcp"` key in your OpenCode configuration file (`~/.config/opencode/opencode.json` or project-level `opencode.json`).
 
+For full setup, token generation, and configuration instructions, see [OPENCODE.md](OPENCODE.md).
+
 ### Example OpenCode Configuration (`opencode.json`)
 
 ```json
@@ -120,6 +122,14 @@ To integrate this MCP server into OpenCode, configure it under the top-level `"m
 ```
 
 > **Note**: OpenCode uses `{env:VAR_NAME}` for credentials interpolation from your environment shell.
+
+---
+
+## Documentation & Changelog
+
+- **[CHANGELOG.md](CHANGELOG.md)**: Version history, features added, and bug fixes across releases.
+- **[OPENCODE.md](OPENCODE.md)**: Complete guide for setting up and configuring the server with OpenCode.
+- **[BUILD.md](BUILD.md)**: Developer guide for building standalone binaries, setting up virtual environments, and running tests.
 
 ---
 

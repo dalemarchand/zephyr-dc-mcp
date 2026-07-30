@@ -8,7 +8,7 @@ import httpx
 import truststore
 from fastmcp import FastMCP
 
-__version__ = "0.2.0"
+__version__ = "0.3.1"
 
 
 # Initialize FastMCP server
@@ -134,6 +134,7 @@ async def create_test_case(
     labels: list[str] = None,
     custom_fields: dict = None,
     issue_links: list[str] = None,
+    precondition: str = None,
     objective: str = None,
     estimated_time: int = None,
     parameters: dict = None,
@@ -141,11 +142,12 @@ async def create_test_case(
     """Create a new test case in Zephyr Scale Data Center.
     
     Supports setting optional metadata fields:
-    - folder_id (int) or folder (str path e.g. "/JLVC/Federates/ACS/Need Sorted into Buckets")
+    - folder_id (int) or folder (str path e.g. "/Project/Subfolder")
     - status, priority, owner, component
     - labels (list of strings)
-    - custom_fields (dict e.g. {"Linked Issues": "JSJ7JLVC-24436"})
-    - issue_links (list of Jira issue keys e.g. ["JSJ7JLVC-24436"])
+    - custom_fields (dict e.g. {"Linked Issues": "PROJ-123"})
+    - issue_links (list of Jira issue keys e.g. ["PROJ-123"])
+    - precondition (precondition text/markdown string)
     - objective (test case objective/description string)
     - estimated_time (execution time in milliseconds)
     - parameters (dict definition)
@@ -169,6 +171,8 @@ async def create_test_case(
         payload["customFields"] = custom_fields
     if issue_links:
         payload["issueLinks"] = issue_links
+    if precondition:
+        payload["precondition"] = precondition
     if objective:
         payload["objective"] = objective
     if estimated_time is not None:
@@ -190,6 +194,7 @@ async def update_test_case(
     labels: list[str] = None,
     custom_fields: dict = None,
     issue_links: list[str] = None,
+    precondition: str = None,
     objective: str = None,
     estimated_time: int = None,
     parameters: dict = None,
@@ -216,6 +221,8 @@ async def update_test_case(
         payload["customFields"] = custom_fields
     if issue_links:
         payload["issueLinks"] = issue_links
+    if precondition:
+        payload["precondition"] = precondition
     if objective:
         payload["objective"] = objective
     if estimated_time is not None:
@@ -305,20 +312,41 @@ async def create_test_cycle(
     project_key: str,
     name: str,
     folder_id: int = None,
+    folder: str = None,
     planned_start_date: str = None,
     planned_end_date: str = None,
     description: str = None,
+    status: str = None,
+    owner: str = None,
+    version: str = None,
+    iteration: str = None,
+    custom_fields: dict = None,
+    issue_links: list[str] = None,
 ) -> str:
     """Create a new test cycle/run."""
     payload = {"projectKey": project_key, "name": name}
     if folder_id is not None:
         payload["folderId"] = folder_id
+    if folder:
+        payload["folder"] = folder
     if planned_start_date:
         payload["plannedStartDate"] = planned_start_date
     if planned_end_date:
         payload["plannedEndDate"] = planned_end_date
     if description:
         payload["description"] = description
+    if status:
+        payload["status"] = status
+    if owner:
+        payload["owner"] = owner
+    if version:
+        payload["version"] = version
+    if iteration:
+        payload["iteration"] = iteration
+    if custom_fields:
+        payload["customFields"] = custom_fields
+    if issue_links:
+        payload["issueLinks"] = issue_links
     return await _make_request("POST", "/rest/atm/1.0/testrun", json=payload)
 
 def _map_folder_type(folder_type: str) -> str:
@@ -362,6 +390,15 @@ async def create_test_execution(
     status: str = "Pass",
     cycle_key: str = None,
     project_key: str = None,
+    comment: str = None,
+    environment: str = None,
+    executed_by: str = None,
+    execution_time: int = None,
+    custom_fields: dict = None,
+    issue_links: list[str] = None,
+    script_results: list[dict] = None,
+    actual_start_date: str = None,
+    actual_end_date: str = None,
 ) -> str:
     """Create a test execution result for a test case (status: Pass, Fail, In Progress, Blocked, Not Executed)."""
     if not project_key and "-" in test_case_key:
@@ -388,6 +425,24 @@ async def create_test_execution(
     }
     if cycle_key:
         payload["testCycleKey"] = cycle_key
+    if comment:
+        payload["comment"] = comment
+    if environment:
+        payload["environment"] = environment
+    if executed_by:
+        payload["executedBy"] = executed_by
+    if execution_time is not None:
+        payload["executionTime"] = execution_time
+    if custom_fields:
+        payload["customFields"] = custom_fields
+    if issue_links:
+        payload["issueLinks"] = issue_links
+    if script_results:
+        payload["scriptResults"] = script_results
+    if actual_start_date:
+        payload["actualStartDate"] = actual_start_date
+    if actual_end_date:
+        payload["actualEndDate"] = actual_end_date
     return await _make_request("POST", "/rest/atm/1.0/testresult", json=payload)
 
 @mcp.tool()
@@ -398,6 +453,12 @@ async def create_test_execution_in_cycle(
     comment: str = None,
     environment: str = None,
     executed_by: str = None,
+    execution_time: int = None,
+    custom_fields: dict = None,
+    issue_links: list[str] = None,
+    script_results: list[dict] = None,
+    actual_start_date: str = None,
+    actual_end_date: str = None,
 ) -> str:
     """Create a test execution result directly within a test cycle/run.
     
@@ -424,6 +485,18 @@ async def create_test_execution_in_cycle(
         payload["comment"] = comment
     if executed_by:
         payload["executedBy"] = executed_by
+    if execution_time is not None:
+        payload["executionTime"] = execution_time
+    if custom_fields:
+        payload["customFields"] = custom_fields
+    if issue_links:
+        payload["issueLinks"] = issue_links
+    if script_results:
+        payload["scriptResults"] = script_results
+    if actual_start_date:
+        payload["actualStartDate"] = actual_start_date
+    if actual_end_date:
+        payload["actualEndDate"] = actual_end_date
     params = {}
     if environment:
         params["environment"] = environment
@@ -440,7 +513,7 @@ async def get_test_execution(execution_id: str | int) -> str:
     
     Accepts either:
     - A numeric ID (e.g. 82812) as returned by create_test_execution
-    - An alphanumeric execution key (e.g. 'JSJ7JLVC-E44546') as returned by list_test_executions
+    - An alphanumeric execution key (e.g. 'PROJ-E44546') as returned by list_test_executions
     
     Note: The official Zephyr Scale Server API does not document a direct GET endpoint
     for test results by ID. Use get_latest_test_result(test_case_key) or
@@ -539,19 +612,33 @@ async def create_test_plan(
     project_key: str,
     name: str,
     folder_id: int = None,
+    folder: str = None,
+    status: str = None,
+    owner: str = None,
+    labels: list[str] = None,
+    issue_links: list[str] = None,
+    custom_fields: dict = None,
+    objective: str = None,
     description: str | None = None,
 ) -> str:
-    """Create a new test plan.
-
-    Note: The official Zephyr Scale Server v1 API does not reliably accept a
-    description field for test plans, so it is omitted for compatibility. Any
-    provided description argument will be ignored.
-    """
-    # The description argument is accepted but intentionally ignored because
-    # the v1 API does not reliably support it for test plans.
+    """Create a new test plan."""
     payload = {"projectKey": project_key, "name": name}
     if folder_id is not None:
         payload["folderId"] = folder_id
+    if folder:
+        payload["folder"] = folder
+    if status:
+        payload["status"] = status
+    if owner:
+        payload["owner"] = owner
+    if labels:
+        payload["labels"] = labels
+    if issue_links:
+        payload["issueLinks"] = issue_links
+    if custom_fields:
+        payload["customFields"] = custom_fields
+    if objective:
+        payload["objective"] = objective
     return await _make_request("POST", "/rest/atm/1.0/testplan", json=payload)
 
 @mcp.tool()
@@ -559,24 +646,35 @@ async def update_test_plan(
     plan_key: str,
     name: str = None,
     folder_id: int = None,
+    folder: str = None,
     status: str = None,
+    owner: str = None,
+    labels: list[str] = None,
+    issue_links: list[str] = None,
+    custom_fields: dict = None,
+    objective: str = None,
     description: str | None = None,
 ) -> str:
-    """Update an existing test plan by key.
-
-    Note: The official Zephyr Scale Server v1 API does not reliably accept a
-    description field for test plans, so it is omitted for compatibility. Any
-    provided description argument will be ignored.
-    """
-    # The description argument is accepted but intentionally ignored because
-    # the v1 API does not reliably support it for test plans.
+    """Update an existing test plan by key."""
     payload = {}
     if name:
         payload["name"] = name
     if folder_id is not None:
         payload["folderId"] = folder_id
+    if folder:
+        payload["folder"] = folder
     if status:
         payload["status"] = status
+    if owner:
+        payload["owner"] = owner
+    if labels:
+        payload["labels"] = labels
+    if issue_links:
+        payload["issueLinks"] = issue_links
+    if custom_fields:
+        payload["customFields"] = custom_fields
+    if objective:
+        payload["objective"] = objective
     return await _make_request("PUT", f"/rest/atm/1.0/testplan/{plan_key}", json=payload)
 
 @mcp.tool()

@@ -112,26 +112,26 @@ async def test_create_and_update_test_case(mock_request):
     res_create = await create_test_case(
         "PROJ",
         "New Auth Test",
-        folder="/JLVC/ACS",
+        folder="/Project/Module",
         status="Approved",
         priority="High",
-        owner="JIRAUSER10949",
-        component="ACS",
-        labels=["StateManager"],
-        custom_fields={"Linked Issues": "JSJ7JLVC-24436"},
-        issue_links=["JSJ7JLVC-24436"],
-        objective="Verify state manager deregistration",
+        owner="user123",
+        component="Module-A",
+        labels=["Regression"],
+        custom_fields={"Linked Issues": "PROJ-100"},
+        issue_links=["PROJ-100"],
+        objective="Verify component behavior",
         estimated_time=120000,
         parameters={"variables": [], "entries": []},
     )
     assert "PROJ-T200" in res_create
     payload = mock_request.call_args[1]["json"]
     assert payload["name"] == "New Auth Test"
-    assert payload["folder"] == "/JLVC/ACS"
-    assert payload["component"] == "ACS"
-    assert payload["customFields"] == {"Linked Issues": "JSJ7JLVC-24436"}
-    assert payload["issueLinks"] == ["JSJ7JLVC-24436"]
-    assert payload["objective"] == "Verify state manager deregistration"
+    assert payload["folder"] == "/Project/Module"
+    assert payload["component"] == "Module-A"
+    assert payload["customFields"] == {"Linked Issues": "PROJ-100"}
+    assert payload["issueLinks"] == ["PROJ-100"]
+    assert payload["objective"] == "Verify component behavior"
     assert payload["estimatedTime"] == 120000
     assert payload["parameters"] == {"variables": [], "entries": []}
 
@@ -139,19 +139,19 @@ async def test_create_and_update_test_case(mock_request):
     res_update = await update_test_case(
         "PROJ-T200",
         name="Updated Name",
-        folder="/JLVC/ACS/Buckets",
-        component="ACS-Core",
-        custom_fields={"Linked Issues": "JSJ7JLVC-24436"},
-        issue_links=["JSJ7JLVC-24436"],
+        folder="/Project/Module/Subfolder",
+        component="Module-Core",
+        custom_fields={"Linked Issues": "PROJ-100"},
+        issue_links=["PROJ-100"],
         estimated_time=180000,
     )
     assert "Updated Name" in res_update
     update_payload = mock_request.call_args[1]["json"]
     assert update_payload["name"] == "Updated Name"
-    assert update_payload["folder"] == "/JLVC/ACS/Buckets"
-    assert update_payload["component"] == "ACS-Core"
-    assert update_payload["customFields"] == {"Linked Issues": "JSJ7JLVC-24436"}
-    assert update_payload["issueLinks"] == ["JSJ7JLVC-24436"]
+    assert update_payload["folder"] == "/Project/Module/Subfolder"
+    assert update_payload["component"] == "Module-Core"
+    assert update_payload["customFields"] == {"Linked Issues": "PROJ-100"}
+    assert update_payload["issueLinks"] == ["PROJ-100"]
     assert update_payload["estimatedTime"] == 180000
 
     mock_request.return_value = Response(200, json={"status": "linked"}, request=Request("POST", "https://jira.example.com"))
@@ -204,8 +204,24 @@ async def test_test_cycles(mock_request):
     assert "PROJ-R1" in res_search
 
     mock_request.return_value = Response(201, json={"key": "PROJ-R2"}, request=Request("POST", "https://jira.example.com"))
-    res_create = await create_test_cycle("PROJ", "Sprint 1 Regression")
+    res_create = await create_test_cycle(
+        "PROJ",
+        "Sprint 1 Regression",
+        folder="/Cycles/Sprint1",
+        owner="user123",
+        version="v1.0",
+        iteration="Sprint 1",
+        custom_fields={"Build": "100"},
+        issue_links=["PROJ-100"],
+    )
     assert "PROJ-R2" in res_create
+    payload = mock_request.call_args[1]["json"]
+    assert payload["folder"] == "/Cycles/Sprint1"
+    assert payload["owner"] == "user123"
+    assert payload["version"] == "v1.0"
+    assert payload["iteration"] == "Sprint 1"
+    assert payload["customFields"] == {"Build": "100"}
+    assert payload["issueLinks"] == ["PROJ-100"]
 
     # update_test_cycle is unsupported and must raise UpdateNotSupportedError
     with pytest.raises(UpdateNotSupportedError):
@@ -215,11 +231,22 @@ async def test_test_cycles(mock_request):
 @patch("httpx.AsyncClient.request")
 async def test_test_executions(mock_request):
     mock_request.return_value = Response(201, json={"id": 500}, request=Request("POST", "https://jira.example.com"))
-    res_create = await create_test_execution("PROJ-T1", "pass")
+    res_create = await create_test_execution(
+        "PROJ-T1",
+        "pass",
+        execution_time=5000,
+        custom_fields={"Environment": "Staging"},
+        issue_links=["PROJ-200"],
+        script_results=[{"index": 0, "status": "Pass", "comment": "Ok"}],
+    )
     assert "500" in res_create
-    assert mock_request.call_args[1]["json"]["status"] == "Pass"
-
-    assert mock_request.call_args[1]["json"]["projectKey"] == "PROJ"
+    payload = mock_request.call_args[1]["json"]
+    assert payload["status"] == "Pass"
+    assert payload["projectKey"] == "PROJ"
+    assert payload["executionTime"] == 5000
+    assert payload["customFields"] == {"Environment": "Staging"}
+    assert payload["issueLinks"] == ["PROJ-200"]
+    assert payload["scriptResults"] == [{"index": 0, "status": "Pass", "comment": "Ok"}]
 
     mock_request.return_value = Response(200, json={"id": 500, "status": "PASS"}, request=Request("GET", "https://jira.example.com"))
     # numeric ID
@@ -227,7 +254,7 @@ async def test_test_executions(mock_request):
     assert "PASS" in res_get
     assert mock_request.call_args[0][1] == "https://jira.example.com/rest/atm/1.0/testresult/500"
 
-    # alphanumeric key (e.g. JSJ7JLVC-E44546) - should try key-based path directly
+    # alphanumeric key (e.g. PROJ-E44546) - should try key-based path directly
     mock_request.return_value = Response(200, json={"id": 500, "key": "PROJ-E500", "status": "Pass"}, request=Request("GET", "https://jira.example.com"))
     res_get_key = await get_test_execution("PROJ-E500")
     assert "Pass" in res_get_key
@@ -257,8 +284,25 @@ async def test_test_plans(mock_request):
     assert "PROJ-P1" in res_search
 
     mock_request.return_value = Response(201, json={"key": "PROJ-P2"}, request=Request("POST", "https://jira.example.com"))
-    res_create = await create_test_plan("PROJ", "Master Plan")
+    res_create = await create_test_plan(
+        "PROJ",
+        "Master Plan",
+        folder="/Plans/Release1",
+        owner="owner123",
+        labels=["Release1"],
+        issue_links=["PROJ-300"],
+        custom_fields={"Scope": "Full"},
+        objective="Verify release readiness",
+    )
     assert "PROJ-P2" in res_create
+    payload = mock_request.call_args[1]["json"]
+    assert payload["name"] == "Master Plan"
+    assert payload["folder"] == "/Plans/Release1"
+    assert payload["owner"] == "owner123"
+    assert payload["labels"] == ["Release1"]
+    assert payload["issueLinks"] == ["PROJ-300"]
+    assert payload["customFields"] == {"Scope": "Full"}
+    assert payload["objective"] == "Verify release readiness"
 
 @pytest.mark.asyncio
 @patch("httpx.AsyncClient.request")
